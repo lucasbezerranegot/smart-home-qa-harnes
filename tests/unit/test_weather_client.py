@@ -28,13 +28,9 @@ def test_get_hourly_forecast_returns_weather_data_for_valid_response():
         status=200,
     )
 
-    # Act
-    result = get_hourly_forecast(
-        lat=48.1374,
-        long=11.5755,
-    )
+    # Act & Assert
+    result = get_hourly_forecast(48.13,11.57)
 
-    # Assert
     # Assert that the result is an instance of WeatherData and has the expected values
     assert isinstance(result, WeatherData)
     assert result.outside_temperature == 19.5
@@ -43,8 +39,8 @@ def test_get_hourly_forecast_returns_weather_data_for_valid_response():
     # Assert that the request was made with the correct parameters
     assert len(responses.calls) == 1
     request = responses.calls[0].request
-    assert "latitude=48.1374" in request.url
-    assert "longitude=11.5755" in request.url
+    assert "latitude=48.13" in request.url
+    assert "longitude=11.57" in request.url
     assert "temperature_2m" in request.url
 
 @responses.activate
@@ -56,11 +52,10 @@ def test_get_hourly_forecast_raises_timeout_error_for_timeout_response():
         body=requests.exceptions.Timeout("Server took too long to respond"),
     )
     
-    # Act
+    # Act & Assert
     with pytest.raises(WeatherClientError) as captured:
          get_hourly_forecast(48.13, 11.57)
 
-    # Assert
     error = captured.value
     assert error.code == "TIMEOUT"
     assert error.retryable is True
@@ -83,3 +78,105 @@ def test_get_hourly_forecast_translates_http_500_to_weather_client_error():
     assert captured.value.retryable is True
     assert "500" in captured.value.message
 
+@responses.activate
+def test_get_hourly_forecast_translates_http_200_with_malformed_weather_data():
+    # Arrange
+    responses.add(
+        responses.GET,
+        url,
+        body="{malformed json",
+        status=200,
+        content_type="application/json"
+    )
+
+    # Act & Assert
+    with pytest.raises(WeatherClientError) as captured:
+        get_hourly_forecast(48.13, 11.57)
+
+    assert captured.value.code == "INVALID_JSON"
+    assert captured.value.retryable is False
+
+@responses.activate
+def test_get_hourly_forecast_translates_http_200_with_missing_temperature_data():
+    # Arrange
+    responses.add(
+        responses.GET,
+        url,
+        json={"hourly": {"time": ["2026-08-12T18:00"]}},
+        status=200,
+    )
+
+    # Act & Assert
+    with pytest.raises(WeatherClientError) as captured:
+        get_hourly_forecast(48.13, 11.57)
+
+    assert captured.value.code == "INVALID_PAYLOAD"
+    assert captured.value.retryable is False
+
+@responses.activate
+def test_get_hourly_forecast_translates_http_200_with_missing_time_data():
+    # Arrange
+    responses.add(
+        responses.GET,
+        url,
+        json={"hourly": {"temperature_2m": [20.0]}},
+        status=200,
+    )
+
+    # Act & Assert
+    with pytest.raises(WeatherClientError) as captured:
+        get_hourly_forecast(48.13, 11.57)
+
+    assert captured.value.code == "INVALID_PAYLOAD"
+    assert captured.value.retryable is False
+
+@responses.activate
+def test_get_hourly_forecast_translates_http_200_with_empty_arrays():
+    # Arrange
+    responses.add(
+        responses.GET,
+        url,
+        json={"hourly": {"time": [], "temperature_2m": []}},
+        status=200,
+    )
+
+    # Act & Assert
+    with pytest.raises(WeatherClientError) as captured:
+        get_hourly_forecast(48.13, 11.57)
+
+    assert captured.value.code == "INVALID_PAYLOAD"
+    assert captured.value.retryable is False
+
+@responses.activate
+def test_get_hourly_forecast_translates_http_200_with_temperature_returning_warm():
+    # Arrange
+    responses.add(
+        responses.GET,
+        url,
+        json={"hourly": {"time": ["2026-08-12T18:00"], "temperature_2m": ["warm"]}},
+        status=200,
+    )
+
+    # Act & Assert
+    with pytest.raises(WeatherClientError) as captured:
+        get_hourly_forecast(48.13, 11.57)
+
+    assert captured.value.code == "INVALID_PAYLOAD"
+    assert captured.value.retryable is False
+
+@responses.activate
+def test_get_hourly_forecast_translates_http_200_with_timestamp_returning_numeric_value():
+    # Arrange
+    responses.add(
+        responses.GET,
+        url,
+        json={"hourly": {"time": [1234567890], "temperature_2m": [20.0]}},
+        status=200,
+    )
+
+    # Act & Assert
+    with pytest.raises(WeatherClientError) as captured:
+        get_hourly_forecast(48.13, 11.57)
+
+    assert captured.value.code == "INVALID_PAYLOAD"
+    assert captured.value.retryable is False

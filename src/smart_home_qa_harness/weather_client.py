@@ -1,14 +1,12 @@
 import requests
 from dataclasses import dataclass
 
-# --- Coordinates ---
-lat = 48.1374  # Munich
-long = 11.5755
 
 @dataclass(frozen=True)
 class WeatherData:
     outside_temperature: float
     timestamp: str
+
 
 class WeatherClientError(Exception):
     def __init__(self, code: str, message: str, retryable: bool):
@@ -18,35 +16,47 @@ class WeatherClientError(Exception):
         self.retryable = retryable
 
 
-def get_hourly_forecast(lat, long):
-    """
-    Get hourly forecast for the given coordinates.
-    :param lat: Latitude
-    :param long: Longitude
-    :return: JSON response from the weather API
-    """
-    url = "https://api.open-meteo.com/v1/forecast"
-    timeout = 3 # Seconds
+# Configuration
+BASE_URL = "https://api.open-meteo.com/v1/forecast"
+REQUEST_TIMEOUT_SECONDS = 3
+
+def get_hourly_forecast(latitude, longitude) -> WeatherData:
+    "Return the first hourly weather observation for the supplied coordinates."
     params = {
-        "latitude": lat,
-        "longitude": long,
+        "latitude": latitude,
+        "longitude": longitude,
         "hourly": "temperature_2m"
     }
 
     try:
-        response = requests.get(url, params=params, timeout=timeout)
+        response = requests.get(BASE_URL, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
-        payload=response.json()
+        payload = response.json()
 
-    except requests.exceptions.HTTPError as e:
+    except requests.exceptions.HTTPError as error:
         # A response arrived, but its status was 4xx/5xx
-        raise WeatherClientError("HTTP_ERROR", f"Failed to fetch weather data: {response.status_code} - {response.text}", True) from e
-    except requests.exceptions.Timeout as e:
+        raise WeatherClientError("HTTP_ERROR", f"Failed to fetch weather data: {response.status_code} - {response.text}", True) from error
+    except requests.exceptions.Timeout as error:
         # No usable HTTP response arrived
-        raise WeatherClientError("TIMEOUT", "Request to weather API timed out", True) from e
+        raise WeatherClientError("TIMEOUT", "Request to weather API timed out", True) from error
+    except requests.exceptions.JSONDecodeError as error:
+        # The response was not valid JSON
+        raise WeatherClientError("INVALID_JSON", "Failed to decode JSON response from weather API", False) from error
+
+    try:
+        # Extract the first hourly observation from the payload. In the future, we may want to get the actual current hour, but for now, we just take the first one.
+        temperature = payload["hourly"]["temperature_2m"][0]
+        timestamp = payload["hourly"]["time"][0]
+    except (KeyError, IndexError, TypeError) as error:
+        raise WeatherClientError("INVALID_PAYLOAD", "Weather API payload has an invalid structure.", False) from error
+
+    if isinstance(temperature, bool) or not isinstance(temperature, (float, int)):
+        raise WeatherClientError("INVALID_PAYLOAD", "Invalid temperature value received.", False)
+
+    if not isinstance(timestamp, str) or not timestamp:
+        raise WeatherClientError("INVALID_PAYLOAD", "Invalid timestamp value received.", False)
 
     return WeatherData(
-        outside_temperature=payload["hourly"]["temperature_2m"][0],
-        timestamp=payload["hourly"]["time"][0],
-        )
-
+        outside_temperature=temperature,
+        timestamp=timestamp,
+    )
