@@ -174,6 +174,56 @@ def test_get_hourly_forecast_translates_http_200_with_timestamp_returning_numeri
         status=200,
     )
 
+    # Act
+    with pytest.raises(WeatherClientError) as captured:
+        get_hourly_forecast(48.13, 11.57)
+
+    # Assert
+    assert captured.value.code == "INVALID_PAYLOAD"
+    assert captured.value.retryable is False
+
+@responses.activate
+@pytest.mark.parametrize(
+    "temperature",
+    [0, -5.5, 19.75],
+)
+def test_get_hourly_forecast_accepts_valid_numeric_temperatures(temperature):
+    # Arrange
+    payload = {
+        "hourly": {
+            "time": ["2026-08-12T18:00"],
+            "temperature_2m": [temperature],
+        }
+    }
+
+    responses.add(
+        responses.GET,
+        url,
+        json=payload,
+        status=200,
+    )
+
+    # Act
+    result = get_hourly_forecast(48.13,11.57)
+
+    # Assert
+    assert isinstance(result, WeatherData)
+    assert result.outside_temperature == temperature
+
+@responses.activate
+@pytest.mark.parametrize(
+    "temperature",
+    [None, True, "19.5", {}, []],
+)
+def test_get_hourly_forecast_rejects_invalid_temperature_values(temperature):
+    # Arrange
+    responses.add(
+        responses.GET,
+        url,
+        json={"hourly": {"time": ["2026-08-12T18:00"], "temperature_2m": [temperature]}},
+        status=200,
+    )
+    
     # Act & Assert
     with pytest.raises(WeatherClientError) as captured:
         get_hourly_forecast(48.13, 11.57)
