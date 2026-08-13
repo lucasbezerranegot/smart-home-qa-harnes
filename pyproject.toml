@@ -21,3 +21,11 @@ addopts = [
     "-ra",
     "--strict-markers",
 ]
+
+[tool.coverage.run]
+source = ["smart_home_qa_harness"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90
